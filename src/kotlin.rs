@@ -2,54 +2,28 @@ use zed::serde_json;
 use zed::LanguageServerId;
 use zed_extension_api::{self as zed, settings::LspSettings, Result};
 
-mod language_servers;
+const BINARY_NAME: &str = "intellij-server";
 
-use language_servers::{KotlinLSP, KotlinLanguageServer};
-
-struct KotlinExtension {
-    kotlin_language_server: Option<KotlinLanguageServer>,
-    kotlin_lsp: Option<KotlinLSP>,
-}
+struct KotlinExtension;
 
 impl zed::Extension for KotlinExtension {
     fn new() -> Self {
-        Self {
-            kotlin_language_server: None,
-            kotlin_lsp: None,
-        }
+        Self
     }
 
     fn language_server_command(
         &mut self,
-        language_server_id: &LanguageServerId,
-        _: &zed::Worktree,
+        _: &LanguageServerId,
+        worktree: &zed::Worktree,
     ) -> zed::Result<zed::Command> {
-        match language_server_id.as_ref() {
-            KotlinLanguageServer::LANGUAGE_SERVER_ID => {
-                let kotlin_language_server = self
-                    .kotlin_language_server
-                    .get_or_insert_with(KotlinLanguageServer::new);
-
-                let binary_path =
-                    kotlin_language_server.language_server_binary_path(language_server_id)?;
-                Ok(zed::Command {
-                    command: binary_path,
-                    args: vec![],
-                    env: Default::default(),
-                })
-            }
-            KotlinLSP::LANGUAGE_SERVER_ID => {
-                let kotlin_lsp = self.kotlin_lsp.get_or_insert_with(KotlinLSP::new);
-                let binary_path = kotlin_lsp.language_server_binary_path(language_server_id)?;
-                Ok(zed::Command {
-                    command: binary_path,
-                    args: vec!["--stdio".to_string()],
-                    env: Default::default(),
-                })
-            }
-            _ => Err(format!(
-                "Unrecognized language server for Kotlin: {language_server_id}"
-            )),
+        if let Some(server_path) = worktree.which(BINARY_NAME) {
+            Ok(zed::Command {
+                command: server_path,
+                args: vec!["--stdio".to_string()],
+                env: Default::default(),
+            })
+        } else {
+            Err("intellij-server not found".to_string())
         }
     }
 
@@ -58,15 +32,8 @@ impl zed::Extension for KotlinExtension {
         language_server_id: &LanguageServerId,
         worktree: &zed_extension_api::Worktree,
     ) -> Result<Option<serde_json::Value>> {
-        let settings = LspSettings::for_worktree(language_server_id.as_ref(), worktree)
-            .ok()
-            .and_then(|lsp_settings| lsp_settings.settings.clone())
-            .unwrap_or_default();
-
-        // todo! test with kotlin-lsp, is "kotlin" key required?
-        Ok(Some(serde_json::json!({
-            "kotlin": settings
-        })))
+        LspSettings::for_worktree(language_server_id.as_ref(), worktree)
+            .map(|lsp_settings| lsp_settings.settings)
     }
 }
 
